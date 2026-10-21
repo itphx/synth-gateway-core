@@ -1,0 +1,92 @@
+# Пайплайн публикации ядра шлюзов Synth.
+#
+# Публикация — **только по тегу** `vX.Y.Z` (или вручную через workflow_dispatch).
+# Обычные push/PR ничего не публикуют: только CI-проверки (ci.yaml).
+#
+# Токен npmjs.org — секрет `NPM_TOKEN` (префикс `GITVERSE_` в GitVerse запрещён).
+# Сложный bash вынесен в `scripts/` — `${...}` в inline-bash GitVerse парсит как
+# Go-шаблон и ломает скрипт.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+jobs:
+  resolve-version:
+    name: Определить версию
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Источник истины — git-тег `vX.Y.Z`; при ручном запуске — package.json.
+      - name: Версия
+        id: resolve
+        run: |
+          if [ "${{ gitverse.ref }}" != "" ] && echo "${{ gitverse.ref }}" | grep -q '^refs/tags/v'; then
+            echo "version=$(echo "${{ gitverse.ref }}" | sed 's|refs/tags/v||')" >> "$GITVERSE_OUTPUT"
+          else
+            echo "version=$(node -p "require('./package.json').version")" >> "$GITVERSE_OUTPUT"
+          fi
+
+  checks:
+    name: Build + Typecheck + Lint + Test
+    needs: [resolve-version]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установка pnpm
+        run: npm install -g pnpm@latest
+
+      - name: Установка зависимостей
+        run: pnpm install --frozen-lockfile
+
+      - name: Сборка
+        run: pnpm build
+
+      - name: TypeScript (typecheck)
+        run: pnpm typecheck
+
+      - name: ESLint
+        run: pnpm lint
+
+      - name: Тесты
+        run: pnpm test
+
+  publish-npmjs:
+    name: npmjs.org
+    needs: [checks, resolve-version]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установка pnpm
+        run: npm install -g pnpm@latest
+
+      - name: Установка зависимостей
+        run: pnpm install --frozen-lockfile
+
+      - name: Сборка
+        run: pnpm build
+
+      # npm отдаёт опубликованную версию с задержкой (автоматический review) —
+      # публикация идемпотентна: повторный прогон не падает на «already exists».
+      - name: Публикация в npmjs.org
+        run: |
+          npm config set "//registry.npmjs.org/:_authToken" "${{ secrets.NPM_TOKEN }}"
+          pnpm publish --access public --no-git-checks --registry https://registry.npmjs.org

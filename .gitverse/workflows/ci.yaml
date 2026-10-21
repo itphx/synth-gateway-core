@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - 'feature/**'
+      - 'fix/**'
+      - 'refactor/**'
+      - 'chore/**'
+      - 'docs/**'
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - 'README.en.md'
+      - 'AGENTS.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.gitverse/**'
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches:
+      - main
+      - master
+
+jobs:
+  build-lint-test:
+    name: Build + Typecheck + Lint + Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # В GitVerse используется предустановленный Node.js 22; actions/setup-node не применять.
+      - name: Установка pnpm
+        run: npm install -g pnpm@latest
+
+      - name: Установка зависимостей
+        run: pnpm install --frozen-lockfile
+
+      - name: Сборка
+        run: pnpm build
+
+      - name: TypeScript (typecheck)
+        run: pnpm typecheck
+
+      - name: ESLint
+        run: pnpm lint
+
+      - name: Тесты
+        run: pnpm test

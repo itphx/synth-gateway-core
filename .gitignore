@@ -2,4 +2,13 @@ node_modules/
 dist/
 *.tsbuildinfo
 .env
+.env.*
 secrets/
+tmp/
+coverage/
+*.log
+
+# Скомпилированные файлы в исходниках (защита от запуска tsc с файловыми аргументами)
+src/**/*.d.ts
+src/**/*.js
+src/**/*.js.map
